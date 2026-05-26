@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-sans:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* ─────────────────────────────────────────────
+   LIGHT THEME  (default — beige / off-white)
+───────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  --color-base:      #d8e8c8;   /* elegant sage green */
+  --color-surface:   #ccdcba;   /* slightly deeper sage */
+  --color-surface2:  #bfcfad;
+  --color-surface3:  #b2c2a0;
+
+  --color-border:    #a8bc98;
+  --color-border2:   #92a882;
+  --color-border3:   #7c946c;
+
+  --color-cream:     #0e1209;   /* near-black on sage */
+  --color-muted:     #2c3e20;   /* dark olive — body copy */
+  --color-faint:     #485e34;   /* medium-dark — labels */
+
+  --color-gold:      #d0b820;   /* warm golden-yellow */
+  --color-gold-lt:   #e4cc30;
+  --color-gold-dk:   #604800;   /* dark amber — readable as text on sage */
+
+  --color-go:        #2a5e28;
+  --color-stop:      #7a2c2c;
+
+  --dot-color:       #b8d0a4;   /* sage dot-grid */
+
+  /* Dark green — structural chrome in light mode */
+  --color-forest:       #1a2e1a;   /* header / footer bg */
+  --color-forest-lt:    #253c25;   /* hover state on green */
+  --color-forest-text:  #b8cca8;   /* muted nav text ON green */
+  --color-forest-faint: #607860;   /* very muted text ON green */
+
+  /* Wordmark — warm beige on dark forest header */
+  --color-wordmark:     #f0e4cc;
+
+  /* Feature index numbers */
+  --color-index:        #2a4a2a;
+
+  /* Wave fills */
+  --wave-top:    #ccdcba;          /* arch between hero → features */
+  --wave-bottom: #d8e8c8;
+  --wave-footer: #1a2e1a;          /* footer bg */
+}
+
+/* ─────────────────────────────────────────────
+   DARK THEME  (dark forest green / gold)
+───────────────────────────────────────────── */
+[data-theme="dark"] {
+  --color-base:      #090e09;
+  --color-surface:   #0f160f;
+  --color-surface2:  #162016;
+  --color-surface3:  #1d2a1d;
+
+  --color-border:    #1e2e1e;
+  --color-border2:   #2a3e2a;
+  --color-border3:   #3a5a3a;
+
+  --color-cream:     #dfd8bc;
+  --color-muted:     #7a9070;
+  --color-faint:     #3e5238;
+
+  --color-gold:      #c49a38;
+  --color-gold-lt:   #d4aa50;
+  --color-gold-dk:   #7a5e24;
+
+  --color-go:        #4a7a46;
+  --color-stop:      #7a4040;
+
+  --dot-color:       #1e2e1e;
+
+  /* In dark mode, the green IS the base — reuse existing tokens */
+  --color-forest:       #0f160f;
+  --color-forest-lt:    #162016;
+  --color-forest-text:  #7a9070;
+  --color-forest-faint: #3e5238;
+  --color-index:        #3a5a3a;
+
+  --color-wordmark:     #e0ecdc;   /* light sage-cream on dark forest */
+
+  --wave-top:    #0f160f;
+  --wave-bottom: #090e09;
+  --wave-footer: #090e09;
+}
+
+/* ─── Base reset ─── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-family: var(--font-sans);
+  background: var(--color-base);
+  color: var(--color-cream);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background 0.25s ease, color 0.2s ease;
+}
+
+body, #root { margin: 0; padding: 0; min-height: 100vh; }
+
+/* Dot-grid — color switches with theme */
+.dot-grid {
+  background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.rule {
+  border: none;
+  border-top: 1px solid var(--color-border2);
+}
+
+/* ─── Scroll reveal ─── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition:
+    opacity   0.72s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.72s cubic-bezier(0.16, 1, 0.3, 1),
+    color            0.2s ease,
+    background-color 0.2s ease,
+    border-color     0.2s ease;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal-d1 { transition-delay: 0.10s; }
+.reveal-d2 { transition-delay: 0.20s; }
+.reveal-d3 { transition-delay: 0.32s; }
+.reveal-d4 { transition-delay: 0.44s; }
+
+/* ─── Page-level enter ─── */
+@keyframes page-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: page-fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Hover line underline for nav links ─── */
+.nav-link {
+  position: relative;
+}
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -2px;
+  width: 0; height: 1px;
+  background: var(--color-forest-text);
+  transition: width 0.28s ease;
+}
+.nav-link:hover::after { width: 100%; }
