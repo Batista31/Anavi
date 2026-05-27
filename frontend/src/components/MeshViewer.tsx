@@ -1,20 +1,19 @@
 /**
  * MeshViewer — Three.js 3D scene using React Three Fiber.
  *
- * What it renders:
- *  - A PlaneGeometry displaced by the height map (edges/walls raised)
- *  - The stitched top-view image as a texture on the plane
+ * Renders:
+ *  - Flat textured floor plane (top-view JPEG as albedo)
+ *  - WallBoxes: InstancedMesh of extruded boxes for each obstacle cell
+ *    (replaces the old height-displaced plane for proper 3D wall geometry)
  *  - Green sphere = start, Red sphere = goal
  *  - Yellow tube = computed path
  *
  * Coordinate systems:
- *  - Grid: (row, col) ∈ [0, GRID_SIZE)
- *  - World: plane spans [-aspect/2, aspect/2] on X and [-0.5, 0.5] on Z
- *            Y axis = height (0 = floor, up to ~0.3 for walls)
- *  - UV: (col/GRID_SIZE, row/GRID_SIZE) — standard Three.js plane UV
+ *  Grid : (row, col) ∈ [0, GRID_SIZE)
+ *  World: X ∈ [-planeW/2, planeW/2],  Z ∈ [-planeH/2, planeH/2],  Y = height
  */
 
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useRef, useEffect } from 'react'
 import { Canvas, useLoader } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -23,8 +22,9 @@ import type { ProcessResponse } from '../api'
 import { topviewUrl } from '../api'
 import type { Waypoint } from '../types'
 
-const HEIGHT_SCALE = 0.25   // max displacement of walls in world units
-const PLANE_SIZE = 10        // plane width in world units; height = 10 / aspect
+const HEIGHT_SCALE  = 0.55  // world-unit height of a full-height wall cell
+const PLANE_SIZE    = 10    // floor plane width in world units
+const MIN_WALL_H    = 0.15  // minimum world-unit height so small boxes are still visible
 
 interface Props {
   session: ProcessResponse
@@ -35,68 +35,51 @@ interface Props {
   isPlacing: boolean
 }
 
-export default function MeshViewer({ session, start, goal, path, onMeshClick, isPlacing }: Props) {
-  // Read the theme from <html data-theme> so the canvas bg matches
+export default function MeshViewer(props: Props) {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
   const canvasBg = isDark ? '#05080a' : '#ccdcba'
 
   return (
     <Canvas
-      camera={{ position: [0, 8, 0], fov: 50 }}
-      style={{ background: canvasBg, cursor: isPlacing ? 'crosshair' : 'grab' }}
+      camera={{ position: [0, 7, 8], fov: 50 }}
+      style={{ background: canvasBg, cursor: props.isPlacing ? 'crosshair' : 'grab' }}
     >
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={1.2} />
-      <Scene
-        session={session}
-        start={start}
-        goal={goal}
-        path={path}
-        onMeshClick={onMeshClick}
-        isPlacing={isPlacing}
-      />
+      <ambientLight intensity={0.55} />
+      <directionalLight position={[6, 12, 6]} intensity={1.1} castShadow />
+      <Scene {...props} />
       <OrbitControls
         enablePan
         enableZoom
-        enableRotate={!isPlacing}
-        mouseButtons={{ LEFT: isPlacing ? undefined : THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
+        enableRotate={!props.isPlacing}
+        mouseButtons={{
+          LEFT:   props.isPlacing ? undefined : THREE.MOUSE.ROTATE,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT:  THREE.MOUSE.PAN,
+        }}
       />
-      <gridHelper args={[12, 24, '#0a2a2a', '#0a1a1a']} position={[0, -0.01, 0]} />
+      <gridHelper args={[14, 28, '#0a2a2a', '#0a1a1a']} position={[0, -0.01, 0]} />
     </Canvas>
   )
 }
 
+// ── Scene ─────────────────────────────────────────────────────────────────────
+
 function Scene({ session, start, goal, path, onMeshClick, isPlacing }: Props) {
-  const { grid_size, heightmap, image_w, image_h, session_id } = session
+  const { grid_size, heightmap, occupancy, image_w, image_h, session_id } = session
   const aspect = image_w / image_h
   const planeW = PLANE_SIZE
   const planeH = PLANE_SIZE / aspect
 
-  // Load the top-view texture via the Vite proxy (no CORS)
-  const texture = useLoader(
-    THREE.TextureLoader,
-    topviewUrl(session_id),
-  )
+  const texture = useLoader(THREE.TextureLoader, topviewUrl(session_id))
 
-  // Build displaced geometry from heightmap
-  const geometry = useMemo(() => {
-    const segs = grid_size - 1
-    const geo = new THREE.PlaneGeometry(planeW, planeH, segs, segs)
-    geo.rotateX(-Math.PI / 2)  // lay flat (XZ plane)
-
-    const positions = geo.attributes.position
-    // PlaneGeometry vertices go row by row (top→bottom in UV space = -Z→+Z)
-    for (let i = 0; i < positions.count; i++) {
-      const row = Math.floor(i / grid_size)
-      const col = i % grid_size
-      const h = heightmap[row]?.[col] ?? 0
-      positions.setY(i, h * HEIGHT_SCALE)
-    }
-    geo.computeVertexNormals()
+  // ── Flat floor plane (textured) ────────────────────────────────────────────
+  const floorGeo = useMemo(() => {
+    const geo = new THREE.PlaneGeometry(planeW, planeH)
+    geo.rotateX(-Math.PI / 2)
     return geo
-  }, [grid_size, heightmap, planeW, planeH])
+  }, [planeW, planeH])
 
-  // Convert grid (row, col) → world XZ
+  // ── Coordinate helpers ─────────────────────────────────────────────────────
   const gridToWorld = useCallback(
     (row: number, col: number): [number, number, number] => {
       const x = (col / (grid_size - 1) - 0.5) * planeW
@@ -107,7 +90,6 @@ function Scene({ session, start, goal, path, onMeshClick, isPlacing }: Props) {
     [grid_size, heightmap, planeW, planeH],
   )
 
-  // Convert world XZ → grid (row, col)
   const worldToGrid = useCallback(
     (x: number, z: number): [number, number] => {
       const col = Math.round(((x / planeW) + 0.5) * (grid_size - 1))
@@ -130,28 +112,37 @@ function Scene({ session, start, goal, path, onMeshClick, isPlacing }: Props) {
     [isPlacing, worldToGrid, onMeshClick],
   )
 
-  // Build path tube
+  // ── Path tube ──────────────────────────────────────────────────────────────
   const pathPoints = useMemo(() => {
     if (!path || path.length < 2) return null
     return path.map(([r, c]) => new THREE.Vector3(...gridToWorld(r, c)))
   }, [path, gridToWorld])
 
   const pathCurve = useMemo(
-    () => pathPoints ? new THREE.CatmullRomCurve3(pathPoints) : null,
+    () => (pathPoints ? new THREE.CatmullRomCurve3(pathPoints) : null),
     [pathPoints],
   )
 
   return (
     <>
-      {/* Displaced terrain mesh */}
-      <mesh geometry={geometry} onClick={handleClick} receiveShadow>
-        <meshStandardMaterial map={texture} roughness={0.8} metalness={0.1} />
+      {/* Textured floor — clickable for waypoint placement */}
+      <mesh geometry={floorGeo} onClick={handleClick} receiveShadow>
+        <meshStandardMaterial map={texture} roughness={0.85} metalness={0.05} />
       </mesh>
+
+      {/* 3D wall boxes — only where occupancy === 1 (high-confidence obstacles) */}
+      <WallBoxes
+        heightmap={heightmap}
+        occupancy={occupancy}
+        grid_size={grid_size}
+        planeW={planeW}
+        planeH={planeH}
+      />
 
       {/* Start marker */}
       {start && (
         <mesh position={gridToWorld(start.row, start.col)}>
-          <sphereGeometry args={[0.12, 16, 16]} />
+          <sphereGeometry args={[0.14, 16, 16]} />
           <meshStandardMaterial color="#22ff88" emissive="#00ff44" emissiveIntensity={0.5} />
         </mesh>
       )}
@@ -159,7 +150,7 @@ function Scene({ session, start, goal, path, onMeshClick, isPlacing }: Props) {
       {/* Goal marker */}
       {goal && (
         <mesh position={gridToWorld(goal.row, goal.col)}>
-          <sphereGeometry args={[0.12, 16, 16]} />
+          <sphereGeometry args={[0.14, 16, 16]} />
           <meshStandardMaterial color="#ff4455" emissive="#ff0022" emissiveIntensity={0.5} />
         </mesh>
       )}
@@ -167,10 +158,73 @@ function Scene({ session, start, goal, path, onMeshClick, isPlacing }: Props) {
       {/* Path tube */}
       {pathCurve && (
         <mesh>
-          <tubeGeometry args={[pathCurve, path!.length * 2, 0.04, 8, false]} />
+          <tubeGeometry args={[pathCurve, path!.length * 2, 0.045, 8, false]} />
           <meshStandardMaterial color="#facc15" emissive="#f59e0b" emissiveIntensity={0.6} />
         </mesh>
       )}
     </>
+  )
+}
+
+// ── WallBoxes ─────────────────────────────────────────────────────────────────
+// Renders one instanced box per OCCUPIED cell (occupancy === 1).
+// Using the binary occupancy grid (not raw heightmap threshold) means only
+// high-confidence obstacles become boxes — mosaic seam artifacts are excluded.
+
+interface WallBoxesProps {
+  heightmap: number[][]
+  occupancy: number[][]
+  grid_size: number
+  planeW: number
+  planeH: number
+}
+
+function WallBoxes({ heightmap, occupancy, grid_size, planeW, planeH }: WallBoxesProps) {
+  const stepX = planeW / grid_size
+  const stepZ = planeH / grid_size
+
+  // Collect (x, z, height) only where occupancy === 1
+  const wallCells = useMemo(() => {
+    const result: [number, number, number][] = []
+    for (let r = 0; r < grid_size; r++) {
+      for (let c = 0; c < grid_size; c++) {
+        if ((occupancy[r]?.[c] ?? 0) !== 1) continue
+        const h = Math.max(MIN_WALL_H / HEIGHT_SCALE, heightmap[r]?.[c] ?? 0)
+        const x = (c / (grid_size - 1) - 0.5) * planeW
+        const z = (r / (grid_size - 1) - 0.5) * planeH
+        result.push([x, z, h])
+      }
+    }
+    return result
+  }, [occupancy, heightmap, grid_size, planeW, planeH])
+
+  const meshRef = useRef<THREE.InstancedMesh>(null)
+
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh || wallCells.length === 0) return
+
+    const matrix = new THREE.Matrix4()
+    const pos    = new THREE.Vector3()
+    const quat   = new THREE.Quaternion()   // identity — no rotation
+    const scale  = new THREE.Vector3()
+
+    wallCells.forEach(([x, z, h], i) => {
+      const wallH = Math.max(MIN_WALL_H, h * HEIGHT_SCALE)
+      pos.set(x, wallH / 2, z)
+      scale.set(stepX * 1.05, wallH, stepZ * 1.05)
+      matrix.compose(pos, quat, scale)
+      mesh.setMatrixAt(i, matrix)
+    })
+    mesh.instanceMatrix.needsUpdate = true
+  }, [wallCells, stepX, stepZ])
+
+  if (wallCells.length === 0) return null
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, wallCells.length]} castShadow receiveShadow>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color="#6B7FA0" roughness={0.85} metalness={0.08} />
+    </instancedMesh>
   )
 }

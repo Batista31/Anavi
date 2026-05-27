@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useScrollReveal } from '../hooks/useScrollReveal'
 import { useNavigate } from 'react-router-dom'
-import type { ProcessResponse, AiAnalysis } from '../api'
+import type { ProcessResponse, AiAnalysis, ImageClassification } from '../api'
 import type { Waypoint, Algorithm } from '../types'
 import MeshViewer from '../components/MeshViewer'
 import { useTheme } from '../useTheme'
@@ -150,6 +150,16 @@ export default function Viewer() {
             </div>
           </div>
 
+          {/* ── 3D Mapping summary ── */}
+          {session.image_classifications?.length > 0 && (
+            <MappingPanel
+              classifications={session.image_classifications}
+              summary={session.perspective_summary ?? {}}
+              has3d={session.has_3d_data}
+              mono={mono}
+            />
+          )}
+
           {/* ── AI Analysis ── */}
           {session.ai_analysis && <AiPanel ai={session.ai_analysis} mono={mono} />}
 
@@ -296,6 +306,93 @@ export default function Viewer() {
     </div>
   )
 }
+
+// ── 3D Mapping panel ──────────────────────────────────────────────────────────
+
+const PERSP_LABEL: Record<string, string> = {
+  top_down:      'TOP-DOWN',
+  oblique_floor: 'OBLIQUE',
+  eye_level:     'EYE-LEVEL',
+  ceiling:       'CEILING',
+}
+const PERSP_COLOR: Record<string, string> = {
+  top_down:      'var(--color-go)',
+  oblique_floor: 'var(--color-gold)',
+  eye_level:     '#7ec8e3',
+  ceiling:       'var(--color-faint)',
+}
+
+function MappingPanel({
+  classifications,
+  summary,
+  has3d,
+  mono,
+}: {
+  classifications: ImageClassification[]
+  summary: Record<string, number>
+  has3d: boolean
+  mono: React.CSSProperties
+}) {
+  return (
+    <div style={{ padding: '1rem 1.4rem', borderBottom: '1px solid var(--color-border)' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', letterSpacing: '0.26em', color: 'var(--color-faint)', marginBottom: '0.75rem' }}>
+        3-AXIS MAPPING
+      </div>
+
+      {/* Axis indicator badge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <span style={{
+          ...mono, fontSize: '0.58rem', letterSpacing: '0.14em',
+          padding: '0.2rem 0.55rem',
+          background: has3d ? 'rgba(126,200,227,0.12)' : 'var(--color-surface2)',
+          color: has3d ? '#7ec8e3' : 'var(--color-faint)',
+          border: `1px solid ${has3d ? '#7ec8e3' : 'var(--color-border2)'}`,
+        }}>
+          {has3d ? 'X · Y · Z' : 'X · Y'}
+        </span>
+        <span style={{ ...mono, fontSize: '0.58rem', color: 'var(--color-faint)', letterSpacing: '0.08em' }}>
+          {has3d ? 'walls mapped' : 'floor only'}
+        </span>
+      </div>
+
+      {/* Per-image perspective chips */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.6rem' }}>
+        {classifications.map((c, i) => (
+          <span
+            key={i}
+            title={`tilt ${c.tilt_from_vertical_deg}°  floor ${Math.round(c.floor_fraction * 100)}%`}
+            style={{
+              ...mono, fontSize: '0.52rem', letterSpacing: '0.1em',
+              padding: '0.18rem 0.45rem',
+              background: 'var(--color-surface2)',
+              color: PERSP_COLOR[c.perspective] ?? 'var(--color-muted)',
+              border: `1px solid ${PERSP_COLOR[c.perspective] ?? 'var(--color-border2)'}22`,
+            }}
+          >
+            {PERSP_LABEL[c.perspective] ?? c.perspective.toUpperCase()}
+            {c.wall_direction !== 'unknown' && ` ·${c.wall_direction.slice(0,1).toUpperCase()}`}
+          </span>
+        ))}
+      </div>
+
+      {/* Summary counts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem 0.5rem' }}>
+        {Object.entries(summary).map(([k, v]) => (
+          <div key={k}>
+            <div style={{ ...mono, fontSize: '0.5rem', letterSpacing: '0.14em', color: 'var(--color-faint)' }}>
+              {PERSP_LABEL[k] ?? k.toUpperCase()}
+            </div>
+            <div style={{ ...mono, fontSize: '0.62rem', color: PERSP_COLOR[k] ?? 'var(--color-muted)' }}>
+              {v} photo{v !== 1 ? 's' : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── AI Analysis panel ─────────────────────────────────────────────────────────
 
 function AiPanel({ ai, mono }: { ai: AiAnalysis; mono: React.CSSProperties }) {
   const pct = (v: number) => `${Math.round(v * 100)}%`
